@@ -1,269 +1,202 @@
 const TelegramBot = require("node-telegram-bot-api");
 
 const TOKEN = process.env.BOT_TOKEN;
-if (!TOKEN) { console.error("BOT_TOKEN manquant"); process.exit(1); }
+if (!TOKEN) { console.error("BOT_TOKEN missing"); process.exit(1); }
 
 const bot = new TelegramBot(TOKEN, { polling: true });
 
-// ─── Logique BJ ───────────────────────────────────────────────────────────────
+const CV = {"2":2,"3":3,"4":4,"5":5,"6":6,"7":7,"8":8,"9":9,"10":10,"J":10,"Q":10,"K":10,"A":11};
 
-const CARD_VALUES = {
-  "2":2,"3":3,"4":4,"5":5,"6":6,"7":7,"8":8,"9":9,"10":10,
-  "J":10,"Q":10,"K":10,"A":11
-};
-
-function handTotal(cards) {
-  let total = cards.reduce((s, c) => s + CARD_VALUES[c], 0);
-  let aces = cards.filter(c => c === "A").length;
-  while (total > 21 && aces > 0) { total -= 10; aces--; }
-  return total;
+function total(cards) {
+  let t = cards.reduce((s,c) => s+CV[c], 0);
+  let a = cards.filter(c => c==="A").length;
+  while(t>21 && a>0){ t-=10; a--; }
+  return t;
 }
+function isSoft(c){ return c.includes("A") && c.reduce((s,x)=>s+CV[x],0)<=21; }
+function isPair(c){ return c.length===2 && CV[c[0]]===CV[c[1]]; }
 
-function isSoft(cards) {
-  const total = cards.reduce((s, c) => s + CARD_VALUES[c], 0);
-  return cards.includes("A") && total <= 21;
-}
-
-function isPair(cards) {
-  return cards.length === 2 && CARD_VALUES[cards[0]] === CARD_VALUES[cards[1]];
-}
-
-function getAction(playerCards, dealerCard) {
-  const total = handTotal(playerCards);
-  const dv = CARD_VALUES[dealerCard];
-  const pair = isPair(playerCards);
-  const soft = isSoft(playerCards);
-
-  // PAIRS
-  if (pair) {
-    const pv = CARD_VALUES[playerCards[0]];
-    if (pv === 11) return { action: "SPLIT", emoji: "✂️", label: "Split", reason: "AA : split toujours. Tu peux construire deux mains vers 21." };
-    if (pv === 8)  return { action: "SPLIT", emoji: "✂️", label: "Split", reason: "8-8 : 16 est la pire main. Split pour repartir de deux bases à 8." };
-    if (pv === 10) return { action: "STAND", emoji: "🛑", label: "Rester", reason: "10-10 = 20 : ne jamais splitter, tu as une des meilleures mains." };
-    if (pv === 9) {
-      if ([7,10,11].includes(dv)) return { action: "STAND", emoji: "🛑", label: "Rester", reason: `9-9 vs ${dealerCard} : ton 18 est suffisant ici.` };
-      return { action: "SPLIT", emoji: "✂️", label: "Split", reason: "9-9 : split pour viser deux 19." };
-    }
-    if (pv === 7) {
-      if (dv <= 7) return { action: "SPLIT", emoji: "✂️", label: "Split", reason: "7-7 vs croupier faible : split rentable." };
-      return { action: "HIT", emoji: "🃏", label: "Tirer", reason: "7-7 vs forte carte : tirer." };
-    }
-    if (pv === 6) {
-      if (dv <= 6) return { action: "SPLIT", emoji: "✂️", label: "Split", reason: "6-6 vs faible croupier : split." };
-      return { action: "HIT", emoji: "🃏", label: "Tirer", reason: "6-6 vs forte carte : tirer." };
-    }
-    if (pv === 5) return { action: "DOUBLE", emoji: "⬆️", label: "Doubler", reason: "5-5 (=10) : ne jamais splitter. Doubler si croupier ≤9." };
-    if (pv === 4) {
-      if ([5,6].includes(dv)) return { action: "SPLIT", emoji: "✂️", label: "Split", reason: "4-4 vs 5/6 : split." };
-      return { action: "HIT", emoji: "🃏", label: "Tirer", reason: "4-4 : tirer." };
-    }
-    if (pv <= 3) {
-      if (dv <= 7) return { action: "SPLIT", emoji: "✂️", label: "Split", reason: `${playerCards[0]}-${playerCards[0]} vs faible : split.` };
-      return { action: "HIT", emoji: "🃏", label: "Tirer", reason: `${playerCards[0]}-${playerCards[0]} vs forte carte : tirer.` };
-    }
+function getAction(p, d, afterSplit) {
+  const t=total(p), dv=CV[d], pair=isPair(p), soft=isSoft(p);
+  if(!afterSplit && pair){
+    const pv=CV[p[0]];
+    if(pv===11) return {a:"SPLIT",e:"✂️",l:"Split",r:"AA: always split. Build two hands toward 21."};
+    if(pv===8)  return {a:"SPLIT",e:"✂️",l:"Split",r:"8-8: 16 is the worst hand. Split to start fresh from 8."};
+    if(pv===10) return {a:"STAND",e:"🛑",l:"Stand",r:"10-10 = 20: never split, you have a near-perfect hand."};
+    if(pv===9){ if([7,10,11].includes(dv)) return {a:"STAND",e:"🛑",l:"Stand",r:`9-9 vs ${d}: your 18 is enough here.`}; return {a:"SPLIT",e:"✂️",l:"Split",r:"9-9: split to aim for two 19s."}; }
+    if(pv===7){ if(dv<=7) return {a:"SPLIT",e:"✂️",l:"Split",r:"7-7 vs weak dealer: split."}; return {a:"HIT",e:"🃏",l:"Hit",r:"7-7 vs strong card: hit."}; }
+    if(pv===6){ if(dv<=6) return {a:"SPLIT",e:"✂️",l:"Split",r:"6-6 vs weak dealer: split."}; return {a:"HIT",e:"🃏",l:"Hit",r:"6-6 vs strong card: hit."}; }
+    if(pv===5) return {a:"DOUBLE",e:"⬆️",l:"Double",r:"5-5 (=10): never split, double down."};
+    if(pv===4){ if([5,6].includes(dv)) return {a:"SPLIT",e:"✂️",l:"Split",r:"4-4 vs 5/6: split."}; return {a:"HIT",e:"🃏",l:"Hit",r:"4-4: hit."}; }
+    if(dv<=7) return {a:"SPLIT",e:"✂️",l:"Split",r:`${p[0]}-${p[0]} vs weak dealer: split.`};
+    return {a:"HIT",e:"🃏",l:"Hit",r:`${p[0]}-${p[0]} vs strong card: hit.`};
   }
-
-  // SOFT
-  if (soft && playerCards.length === 2) {
-    const nonAce = playerCards.find(c => c !== "A");
-    const nv = CARD_VALUES[nonAce];
-    if (nv === 9) return { action: "STAND", emoji: "🛑", label: "Rester", reason: "Soft 20 : ne jamais toucher." };
-    if (nv === 8) {
-      if (dv === 6) return { action: "DOUBLE", emoji: "⬆️", label: "Doubler", reason: "Soft 19 vs 6 : doubler." };
-      return { action: "STAND", emoji: "🛑", label: "Rester", reason: "Soft 19 : rester." };
-    }
-    if (nv === 7) {
-      if ([3,4,5,6].includes(dv)) return { action: "DOUBLE", emoji: "⬆️", label: "Doubler", reason: "Soft 18 vs faible : doubler." };
-      if ([2,7,8].includes(dv)) return { action: "STAND", emoji: "🛑", label: "Rester", reason: "Soft 18 : rester." };
-      return { action: "HIT", emoji: "🃏", label: "Tirer", reason: "Soft 18 vs forte carte : tirer." };
-    }
-    if (nv === 6) {
-      if ([3,4,5,6].includes(dv)) return { action: "DOUBLE", emoji: "⬆️", label: "Doubler", reason: "Soft 17 vs faible : doubler." };
-      return { action: "HIT", emoji: "🃏", label: "Tirer", reason: "Soft 17 : toujours tirer ou doubler." };
-    }
-    if (nv >= 4) {
-      if ([4,5,6].includes(dv)) return { action: "DOUBLE", emoji: "⬆️", label: "Doubler", reason: `Soft ${10+nv} vs faible : doubler.` };
-      return { action: "HIT", emoji: "🃏", label: "Tirer", reason: `Soft ${10+nv} : tirer.` };
-    }
-    if ([5,6].includes(dv)) return { action: "DOUBLE", emoji: "⬆️", label: "Doubler", reason: "Soft 13-14 vs 5-6 : doubler." };
-    return { action: "HIT", emoji: "🃏", label: "Tirer", reason: "Soft 13-14 : tirer." };
+  if(!afterSplit && soft && p.length===2){
+    const nv=CV[p.find(c=>c!=="A")];
+    if(nv===9) return {a:"STAND",e:"🛑",l:"Stand",r:"Soft 20: never touch this hand."};
+    if(nv===8){ if(dv===6) return {a:"DOUBLE",e:"⬆️",l:"Double",r:"Soft 19 vs 6: double down."}; return {a:"STAND",e:"🛑",l:"Stand",r:"Soft 19: stand."}; }
+    if(nv===7){ if([3,4,5,6].includes(dv)) return {a:"DOUBLE",e:"⬆️",l:"Double",r:"Soft 18 vs weak dealer: double."}; if([2,7,8].includes(dv)) return {a:"STAND",e:"🛑",l:"Stand",r:"Soft 18: stand."}; return {a:"HIT",e:"🃏",l:"Hit",r:"Soft 18 vs strong card: hit."}; }
+    if(nv===6){ if([3,4,5,6].includes(dv)) return {a:"DOUBLE",e:"⬆️",l:"Double",r:"Soft 17 vs weak dealer: double."}; return {a:"HIT",e:"🃏",l:"Hit",r:"Soft 17: always hit or double."}; }
+    if(nv>=4){ if([4,5,6].includes(dv)) return {a:"DOUBLE",e:"⬆️",l:"Double",r:`Soft ${10+nv} vs weak dealer: double.`}; return {a:"HIT",e:"🃏",l:"Hit",r:`Soft ${10+nv}: hit.`}; }
+    if([5,6].includes(dv)) return {a:"DOUBLE",e:"⬆️",l:"Double",r:"Soft 13-14 vs 5-6: double."};
+    return {a:"HIT",e:"🃏",l:"Hit",r:"Soft 13-14: hit."};
   }
-
-  // HARD
-  if (total >= 17) return { action: "STAND", emoji: "🛑", label: "Rester", reason: "17+ : on reste toujours." };
-  if (total <= 8)  return { action: "HIT",   emoji: "🃏", label: "Tirer",  reason: "8 ou moins : tirer, impossible de crever." };
-  if (total === 11) return { action: "DOUBLE", emoji: "⬆️", label: "Doubler", reason: "11 : doubler, fort potentiel de 21." };
-  if (total === 10) {
-    if (dv <= 9) return { action: "DOUBLE", emoji: "⬆️", label: "Doubler", reason: "10 vs faible : doubler." };
-    return { action: "HIT", emoji: "🃏", label: "Tirer", reason: "10 vs 10/As : tirer." };
-  }
-  if (total === 9) {
-    if ([3,4,5,6].includes(dv)) return { action: "DOUBLE", emoji: "⬆️", label: "Doubler", reason: "9 vs faible : doubler." };
-    return { action: "HIT", emoji: "🃏", label: "Tirer", reason: "9 : tirer." };
-  }
-  if (total === 16) {
-    if (dv >= 7) return { action: "HIT", emoji: "🃏", label: "Tirer", reason: "16 vs forte carte : tirer." };
-    return { action: "STAND", emoji: "🛑", label: "Rester", reason: "16 vs faible : rester, laisse-le crever." };
-  }
-  if (total === 15) {
-    if (dv >= 7) return { action: "HIT", emoji: "🃏", label: "Tirer", reason: "15 vs forte carte : tirer." };
-    return { action: "STAND", emoji: "🛑", label: "Rester", reason: "15 vs faible : rester." };
-  }
-  if (total <= 14) {
-    if (dv <= 6) return { action: "STAND", emoji: "🛑", label: "Rester", reason: `${total} vs croupier faible : rester.` };
-    return { action: "HIT", emoji: "🃏", label: "Tirer", reason: `${total} vs forte carte : tirer.` };
-  }
-  if (total === 12) {
-    if ([4,5,6].includes(dv)) return { action: "STAND", emoji: "🛑", label: "Rester", reason: "12 vs 4-6 : rester." };
-    return { action: "HIT", emoji: "🃏", label: "Tirer", reason: "12 : tirer." };
-  }
-  return { action: "HIT", emoji: "🃏", label: "Tirer", reason: "Tirer." };
+  if(t>=17) return {a:"STAND",e:"🛑",l:"Stand",r:"17+: always stand."};
+  if(t<=8)  return {a:"HIT",e:"🃏",l:"Hit",r:"8 or less: hit, you can't bust."};
+  if(!afterSplit && t===11) return {a:"DOUBLE",e:"⬆️",l:"Double",r:"11: double down, strong potential for 21."};
+  if(!afterSplit && t===10){ if(dv<=9) return {a:"DOUBLE",e:"⬆️",l:"Double",r:"10 vs weak dealer: double."}; return {a:"HIT",e:"🃏",l:"Hit",r:"10 vs 10/Ace: hit."}; }
+  if(!afterSplit && t===9){ if([3,4,5,6].includes(dv)) return {a:"DOUBLE",e:"⬆️",l:"Double",r:"9 vs weak dealer: double."}; return {a:"HIT",e:"🃏",l:"Hit",r:"9: hit."}; }
+  if(t===16){ if(dv>=7) return {a:"HIT",e:"🃏",l:"Hit",r:"16 vs strong card: hit."}; return {a:"STAND",e:"🛑",l:"Stand",r:"16 vs weak dealer: stand, let them bust."}; }
+  if(t===15){ if(dv>=7) return {a:"HIT",e:"🃏",l:"Hit",r:"15 vs strong card: hit."}; return {a:"STAND",e:"🛑",l:"Stand",r:"15 vs weak dealer: stand."}; }
+  if(t===12){ if([4,5,6].includes(dv)) return {a:"STAND",e:"🛑",l:"Stand",r:"12 vs 4-6: stand."}; return {a:"HIT",e:"🃏",l:"Hit",r:"12: hit."}; }
+  if(dv<=6) return {a:"STAND",e:"🛑",l:"Stand",r:`${t} vs weak dealer: stand.`};
+  return {a:"HIT",e:"🃏",l:"Hit",r:`${t} vs strong card: hit.`};
 }
 
-// ─── Sessions utilisateurs ────────────────────────────────────────────────────
+const sessions = {};
+function getSession(id){ if(!sessions[id]) sessions[id]={p:[],d:null,h1:[],h2:[],isAceSplit:false}; return sessions[id]; }
+function resetSession(id){ sessions[id]={p:[],d:null,h1:[],h2:[],isAceSplit:false}; }
 
-const sessions = {}; // chatId -> { playerCards, dealerCard, phase }
+const R1 = ["2","3","4","5","6","7"];
+const R2 = ["8","9","10","J","Q","K","A"];
 
-function getSession(chatId) {
-  if (!sessions[chatId]) sessions[chatId] = { playerCards: [], dealerCard: null, phase: "player" };
-  return sessions[chatId];
+function cardKeyboard(prefix){
+  return { inline_keyboard: [
+    R1.map(c=>({text:c, callback_data:`${prefix}_${c}`})),
+    R2.map(c=>({text:c, callback_data:`${prefix}_${c}`})),
+  ]};
+}
+function resetKeyboard(){ return { inline_keyboard: [[{text:"🔄 New hand", callback_data:"reset"}]] }; }
+function main2OnlyKeyboard(){ return { inline_keyboard: [[{text:"➡️ Hand 2", callback_data:"split_card2"}]] }; }
+
+function handLine(cards){
+  const t=total(cards), s=isSoft(cards)&&cards.length>=2;
+  return `*${cards.join("  ")}*  →  ${t}${s?" (soft)":""}`;
 }
 
-function resetSession(chatId) {
-  sessions[chatId] = { playerCards: [], dealerCard: null, phase: "player" };
+async function edit(bot, chatId, msgId, text, keyboard){
+  try { await bot.editMessageText(text, {chat_id:chatId, message_id:msgId, parse_mode:"Markdown", reply_markup:keyboard}); } catch(e){}
 }
-
-// ─── Keyboards ────────────────────────────────────────────────────────────────
-
-const CARDS_ROW1 = ["2","3","4","5","6","7"];
-const CARDS_ROW2 = ["8","9","10","J","Q","K","A"];
-
-function cardPickerKeyboard(prefix) {
-  return {
-    inline_keyboard: [
-      CARDS_ROW1.map(c => ({ text: c, callback_data: `${prefix}_${c}` })),
-      CARDS_ROW2.map(c => ({ text: c, callback_data: `${prefix}_${c}` })),
-    ]
-  };
-}
-
-function mainKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "✋ Ajouter carte joueur", callback_data: "phase_player" }],
-      [{ text: "🃏 Carte croupier", callback_data: "phase_dealer" }],
-      [{ text: "⚡ Analyser", callback_data: "analyze" }],
-      [{ text: "🔄 Nouvelle main", callback_data: "reset" }],
-    ]
-  };
-}
-
-function buildStatusText(session) {
-  const total = session.playerCards.length > 0 ? handTotal(session.playerCards) : null;
-  const soft = session.playerCards.length >= 2 && isSoft(session.playerCards);
-  const playerStr = session.playerCards.length > 0
-    ? `*${session.playerCards.join(" | ")}*  →  ${total}${soft ? " (soft)" : ""}`
-    : "_aucune carte_";
-  const dealerStr = session.dealerCard ? `*${session.dealerCard}*` : "_aucune carte_";
-  return `🃏 *Blackjack Advisor*\n\n✋ Ta main : ${playerStr}\n🏦 Croupier : ${dealerStr}`;
-}
-
-// ─── Handlers ────────────────────────────────────────────────────────────────
 
 bot.onText(/\/start/, (msg) => {
-  const chatId = msg.chat.id;
-  resetSession(chatId);
-  bot.sendMessage(chatId,
-    "🃏 *Blackjack Advisor*\n\nStratégie de base en temps réel.\nSélectionne tes cartes et celle du croupier.",
-    { parse_mode: "Markdown", reply_markup: mainKeyboard() }
-  );
+  const id = msg.chat.id;
+  resetSession(id);
+  bot.sendMessage(id, "🃏 *Blackjack Advisor*\n\n👇 _Pick your 1st card:_", {parse_mode:"Markdown", reply_markup:cardKeyboard("p1")});
 });
 
 bot.on("callback_query", async (query) => {
   const chatId = query.message.chat.id;
   const msgId  = query.message.message_id;
   const data   = query.data;
-  const session = getSession(chatId);
+  const S      = getSession(chatId);
 
-  // Phase switch
-  if (data === "phase_player") {
-    session.phase = "player";
-    await bot.editMessageText(buildStatusText(session) + "\n\n_Choisis une carte pour ta main :_",
-      { chat_id: chatId, message_id: msgId, parse_mode: "Markdown", reply_markup: cardPickerKeyboard("p") });
+  if(data.startsWith("p1_")){
+    S.p.push(data.slice(3));
+    await edit(bot, chatId, msgId, `✋ Your hand: *${S.p[0]}*\n\n👇 _Pick your 2nd card:_`, cardKeyboard("p2"));
     return bot.answerCallbackQuery(query.id);
   }
 
-  if (data === "phase_dealer") {
-    session.phase = "dealer";
-    await bot.editMessageText(buildStatusText(session) + "\n\n_Choisis la carte visible du croupier :_",
-      { chat_id: chatId, message_id: msgId, parse_mode: "Markdown", reply_markup: cardPickerKeyboard("d") });
+  if(data.startsWith("p2_")){
+    S.p.push(data.slice(3));
+    await edit(bot, chatId, msgId,
+      `✋ Your hand: ${handLine(S.p)}\n🏦 Dealer: _—_\n\n👇 _Dealer's upcard:_`,
+      cardKeyboard("d"));
     return bot.answerCallbackQuery(query.id);
   }
 
-  // Add player card
-  if (data.startsWith("p_")) {
-    const card = data.slice(2);
-    if (session.playerCards.length < 8) session.playerCards.push(card);
-    await bot.editMessageText(buildStatusText(session) + "\n\n_Ajoute une autre carte ou analyse :_",
-      { chat_id: chatId, message_id: msgId, parse_mode: "Markdown",
-        reply_markup: {
-          inline_keyboard: [
-            CARDS_ROW1.map(c => ({ text: c, callback_data: `p_${c}` })),
-            CARDS_ROW2.map(c => ({ text: c, callback_data: `p_${c}` })),
-            [{ text: "✅ Terminé", callback_data: "back_main" }],
-          ]
-        }
-      });
+  if(data.startsWith("d_")){
+    S.d = data.slice(2);
+    await showResult(bot, chatId, msgId, S, S.p, false, null, false);
     return bot.answerCallbackQuery(query.id);
   }
 
-  // Add dealer card
-  if (data.startsWith("d_")) {
-    const card = data.slice(2);
-    session.dealerCard = card;
-    await bot.editMessageText(buildStatusText(session),
-      { chat_id: chatId, message_id: msgId, parse_mode: "Markdown", reply_markup: mainKeyboard() });
+  if(data.startsWith("hit_")){
+    S.p.push(data.slice(4));
+    await showResult(bot, chatId, msgId, S, S.p, false, null, false);
     return bot.answerCallbackQuery(query.id);
   }
 
-  // Back to main
-  if (data === "back_main") {
-    await bot.editMessageText(buildStatusText(session),
-      { chat_id: chatId, message_id: msgId, parse_mode: "Markdown", reply_markup: mainKeyboard() });
+  if(data.startsWith("sc1_")){
+    S.h1 = [S.p[0], data.slice(4)];
+    await showResult(bot, chatId, msgId, S, S.h1, true, "HAND 1", true);
     return bot.answerCallbackQuery(query.id);
   }
 
-  // Analyze
-  if (data === "analyze") {
-    if (session.playerCards.length < 2 || !session.dealerCard) {
-      return bot.answerCallbackQuery(query.id, { text: "⚠️ Sélectionne au moins 2 cartes + carte croupier", show_alert: true });
-    }
-    const result = getAction(session.playerCards, session.dealerCard);
-    const total = handTotal(session.playerCards);
-    const soft = isSoft(session.playerCards);
-
-    const actionColors = { SPLIT: "✂️", STAND: "🛑", HIT: "🃏", DOUBLE: "⬆️" };
-    const text = `${buildStatusText(session)}\n\n`
-      + `━━━━━━━━━━━━━━━\n`
-      + `${result.emoji} *${result.label.toUpperCase()}*\n\n`
-      + `_${result.reason}_`;
-
-    await bot.editMessageText(text,
-      { chat_id: chatId, message_id: msgId, parse_mode: "Markdown",
-        reply_markup: { inline_keyboard: [[{ text: "🔄 Nouvelle main", callback_data: "reset" }]] }
-      });
+  if(data.startsWith("h1_")){
+    S.h1.push(data.slice(3));
+    await showResult(bot, chatId, msgId, S, S.h1, true, "HAND 1", true);
     return bot.answerCallbackQuery(query.id);
   }
 
-  // Reset
-  if (data === "reset") {
+  if(data === "split_card2"){
+    await edit(bot, chatId, msgId,
+      `*HAND 2*\n✋ *${S.p[1]}*  +  ?\n🏦 Dealer: *${S.d}*\n\n👇 _Card drawn on hand 2:_`,
+      cardKeyboard("sc2"));
+    return bot.answerCallbackQuery(query.id);
+  }
+
+  if(data.startsWith("sc2_")){
+    S.h2 = [S.p[1], data.slice(4)];
+    await showResult(bot, chatId, msgId, S, S.h2, true, "HAND 2", false);
+    return bot.answerCallbackQuery(query.id);
+  }
+
+  if(data.startsWith("h2_")){
+    S.h2.push(data.slice(3));
+    await showResult(bot, chatId, msgId, S, S.h2, true, "HAND 2", false);
+    return bot.answerCallbackQuery(query.id);
+  }
+
+  if(data === "reset"){
     resetSession(chatId);
-    await bot.editMessageText("🃏 *Blackjack Advisor*\n\nNouvelle main. Sélectionne tes cartes.",
-      { chat_id: chatId, message_id: msgId, parse_mode: "Markdown", reply_markup: mainKeyboard() });
+    await edit(bot, chatId, msgId, "🃏 *Blackjack Advisor*\n\n👇 _Pick your 1st card:_", cardKeyboard("p1"));
     return bot.answerCallbackQuery(query.id);
   }
 
   bot.answerCallbackQuery(query.id);
 });
 
-console.log("🃏 BJ Bot démarré");
+async function showResult(bot, chatId, msgId, S, cards, afterSplit, label, isH1){
+  const t = total(cards);
+  const labelLine = label ? `*${label}*\n` : "";
+  const dealerLine = `🏦 Dealer: *${S.d}*`;
+
+  if(t > 21){
+    const text = `${labelLine}✋ ${handLine(cards)}\n${dealerLine}\n\n━━━━━━━━━━━━━━\n💥 *BUST*\n_Over 21, hand lost._`;
+    await edit(bot, chatId, msgId, text, isH1 ? main2OnlyKeyboard() : resetKeyboard());
+    return;
+  }
+
+  const res = (afterSplit && S.isAceSplit)
+    ? {a:"STAND",e:"🛑",l:"Stand",r:"Split aces: one card per hand, must stand."}
+    : getAction(cards, S.d, afterSplit);
+
+  if(res.a === "SPLIT"){
+    S.isAceSplit = CV[cards[0]] === 11;
+    const text = `${labelLine}✋ ${handLine(cards)}\n${dealerLine}\n\n━━━━━━━━━━━━━━\n${res.e} *${res.l.toUpperCase()}*\n_${res.r}_\n\n👇 _Card drawn on hand 1:_`;
+    await edit(bot, chatId, msgId, text, cardKeyboard("sc1"));
+    return;
+  }
+
+  const text = `${labelLine}✋ ${handLine(cards)}\n${dealerLine}\n\n━━━━━━━━━━━━━━\n${res.e} *${res.l.toUpperCase()}*\n_${res.r}_`;
+
+  if(res.a === "HIT"){
+    const pickPrefix = afterSplit ? (isH1 ? "h1" : "h2") : "hit";
+    const lastRow = isH1
+      ? [{text:"➡️ Hand 2", callback_data:"split_card2"}]
+      : [{text:"🔄 New hand", callback_data:"reset"}];
+    const kb = { inline_keyboard: [
+      R1.map(c=>({text:c, callback_data:`${pickPrefix}_${c}`})),
+      R2.map(c=>({text:c, callback_data:`${pickPrefix}_${c}`})),
+      lastRow
+    ]};
+    await edit(bot, chatId, msgId, text + "\n\n👇 _Which card did you draw?_", kb);
+  } else {
+    const kb = isH1
+      ? { inline_keyboard: [[{text:"➡️ Hand 2", callback_data:"split_card2"}],[{text:"🔄 New hand", callback_data:"reset"}]] }
+      : resetKeyboard();
+    await edit(bot, chatId, msgId, text, kb);
+  }
+}
+
+console.log("🃏 BJ Bot started");
