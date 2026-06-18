@@ -93,7 +93,9 @@ async function edit(bot, chatId, msgId, text, keyboard){
 bot.onText(/\/start/, (msg) => {
   const id = msg.chat.id;
   resetSession(id);
-  bot.sendMessage(id, "🃏 *Blackjack Advisor*\n\n👇 _Pick your 1st card:_\n\n🎰 [Play on Duel Casino](https://duel.com/r/BJCoach)", {parse_mode:"Markdown", disable_web_page_preview:true, reply_markup:cardKeyboard("p1")});
+  const kb = cardKeyboard("p1");
+  kb.inline_keyboard.push([{text:"🎰 Play on Duel Casino", url:"https://duel.com/r/BJCoach"}]);
+  bot.sendMessage(id, "🃏 *Blackjack Advisor*\n\n👇 _Pick your 1st card:_", {parse_mode:"Markdown", reply_markup:kb});
 });
 
 bot.on("callback_query", async (query) => {
